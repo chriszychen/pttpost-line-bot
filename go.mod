@@ -6,6 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.9.0
 	github.com/jinzhu/configor v1.2.1
 	github.com/line/line-bot-sdk-go/v7 v7.19.0
+	github.com/robfig/cron/v3 v3.0.0
 )
 
 require (

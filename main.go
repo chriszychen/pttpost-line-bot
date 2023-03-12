@@ -1,17 +1,20 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
+	"github.com/robfig/cron/v3"
 
 	"github.com/chriszychen/pttpost-line-bot/config"
 )
 
-var bot *linebot.Client
+var (
+	bot     *linebot.Client
+	cronjob *cron.Cron
+)
 
 type ApiRes struct {
 	Data interface{} `json:"data" description:"API response data"`
@@ -20,10 +23,12 @@ type ApiRes struct {
 func main() {
 	config.Init()
 
+	gin.ForceConsoleColor()
+
 	var err error
 	bot, err = linebot.New(config.Config.ChannelSecret, config.Config.ChannelAccessToken)
 	if err != nil {
-		panic(err)
+		fmt.Println("linebot.New error happens, err:", err)
 	}
 
 	r := gin.Default()
@@ -50,23 +55,68 @@ func handler(ctx *gin.Context) {
 	}
 
 	for _, event := range events {
-
 		if event.Type == linebot.EventTypeMessage {
+			token := event.ReplyToken
+
 			switch message := event.Message.(type) {
 			case *linebot.TextMessage:
-				// GetMessageQuota: Get how many remain free tier push message quota you still have this month. (maximum 500)
-				quota, err := bot.GetMessageQuota().Do()
-				if err != nil {
-					log.Println("Quota err:", err)
-				}
-				// message.ID: Msg unique ID
-				// message.Text: Msg text
-				if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("msg ID:"+message.ID+":"+"Get:"+message.Text+" , \n OK! remain message:"+strconv.FormatInt(quota.Value, 10))).Do(); err != nil {
-					log.Print(err)
+				// print UserID
+				userID := event.Source.UserID
+				fmt.Println("UserID:", userID)
+
+				msg := message.Text
+				switch msg {
+				case "turn on":
+					startCron()
+					if err := replyLineMsg(token, "cron start success!"); err != nil {
+						fmt.Println("cron start push msg error happens, err:", err)
+					}
+				case "turn off":
+					stopCron()
+					if err := replyLineMsg(token, "cron stop success!"); err != nil {
+						fmt.Println("cron stop push msg error happens, err:", err)
+					}
+				default:
+					sameMsg := "UserID: " + userID + ",\nGet TextMessage: " + msg + " , \n OK!"
+					if err := replyLineMsg(token, sameMsg); err != nil {
+						fmt.Println("push same msg error happens, err:", err)
+					}
 				}
 			}
 		}
 	}
 
 	ctx.JSON(http.StatusOK, ApiRes{})
+}
+
+func startCron() {
+	cronjob = cron.New()
+	cronjob.AddFunc("* * * * *", func() { fmt.Println("Every minute") })
+	cronjob.Start()
+}
+
+func stopCron() {
+	cronjob.Stop()
+}
+
+func replyLineMsg(replyToken, msg string) error {
+	if _, err := bot.ReplyMessage(
+		replyToken,
+		linebot.NewTextMessage(msg),
+	).Do(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func pushLineMsg(pushMsg string) error {
+	if _, err := bot.PushMessage(
+		config.Config.SelfLineID,
+		linebot.NewTextMessage(pushMsg),
+	).Do(); err != nil {
+		return err
+	}
+
+	return nil
 }
